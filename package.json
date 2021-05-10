@@ -1,10 +1,10 @@
 {
-  "name": "@mohammedalhalwachi/oedit",
+  "name": "oedit",
   "version": "1.0.0",
   "description": "A CLI to allow connecting IDE's to lively edit odoo's code models",
   "main": "src/index.js",
   "bin": {
-    "@mohammedalhalwachi/oedit": "bin/oedit",
+    "@jidd6/oedit": "bin/oedit",
     "oedit": "bin/oedit"
   },
   "publishConfig": {
@@ -13,6 +13,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
+  "homepage": "https://github.com/MohammedAlhalwachi/oedit",
   "keywords": [
     "cli",
     "oedit"
@@ -27,8 +28,10 @@
     "esm": "^3.2.25",
     "mkdirp": "^1.0.4",
     "odoo-await": "^2.2.0",
-    "querystring": "^0.2.1",
-    "sanitize-filename": "^1.6.3",
-    "tmp": "^0.2.1"
-  }
+    "querystring": "^0.2.1"
+  },
+  "files": [
+    "bin/",
+    "src/"
+  ]
 }
