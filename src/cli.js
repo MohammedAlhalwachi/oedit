@@ -13,6 +13,7 @@ const mkdirp = require('mkdirp');
 const chokidar = require('chokidar');
 const { Select, prompt } = require('enquirer');
 const arg = require('arg');
+const commandLineUsage = require('command-line-usage')
 import chalk from 'chalk';
 
 
@@ -27,31 +28,59 @@ const snakeCase = string => {
 
 const getArgs = () => {
     const args = arg({
+        '--host': String,
+        '--port': Number,
+        '--database': String,
+        '--username': String,
+        '--password': String,
         '--help': Boolean,
         '--yes': Boolean,
         // Aliases
+        '-h': '--host',
+        '-p': '--port',
+        '-d': '--database',
+        '-u': '--username',
+        '-s': '--password',
         '-y': '--yes',
     });
 
     return {
+        host: args['--host'],
+        port: args['--port'],
+        db: args['--database'],
+        username: args['--username'],
+        password: args['--password'],
         skipPrompt: args['--yes'],
+        help: args['--help']
     }
 }
 
-const promptConnectionDetails = async () => {
+const promptConnectionDetails = async (skipList) => {
     console.log(chalk`{bold Please provide the following information:}`);
-    return prompt([
+    let unskippedList = [];
+
+    const promptList = [
         {
             type: 'input',
-            name: 'baseUrl',
-            message: '\tServer Base URL:',
+            name: 'host',
+            message: '\tServer Host:',
             initial: 'http://localhost',
         },
         {
             type: 'numeral',
             name: 'port',
             message: '\tPort:',
-            initial: '8069',
+            initial: function (options) {
+                const host = options.enquirer.answers.host;
+                const urlObj = new URL(host);
+                
+                // if its localhost suggest port 8069
+                if (urlObj.host === 'localhost')
+                    return '8069';
+                
+                // otherwise suggest a port depending on the protocol
+                return urlObj.protocol === 'https:' ? '443' : '80';
+            },
         },
         {
             type: 'input',
@@ -71,13 +100,24 @@ const promptConnectionDetails = async () => {
             message: '\tPassword:',
             initial: 'admin',
         }
-    ]);
+    ];
+    
+    for (let promptItem of promptList) {
+        if (!skipList.includes(promptItem.name)) {
+            unskippedList.push(promptItem);
+        }
+    }
+
+    // console.log(skipList);
+    // process.exit();
+    
+    return prompt(unskippedList);
 }
 
-const odooConnect = async (baseUrl, port, db, username, password) => {
+const odooConnect = async (host, port, db, username, password) => {
     try {
         const odoo = new Odoo({
-            baseUrl: baseUrl,
+            baseUrl: host,
             port: port,
             db: db,
             username: username,
@@ -85,13 +125,13 @@ const odooConnect = async (baseUrl, port, db, username, password) => {
         });
 
         await odoo.connect();
-        console.log(chalk`{green Connected to Odoo:} \n \turl = {blue ${baseUrl}}, port = {blue ${port}} \n \tdb = {blue ${db}}, username = {blue ${username}}, password = {blue ${password}}`);
+        console.log(chalk`{green Connected to Odoo:} \n \turl = {blue ${host}}, port = {blue ${port}} \n \tdb = {blue ${db}}, username = {blue ${username}}, password = {blue ${password}}`);
         console.log(); // prints new line
 
         return odoo;
     } catch (error) {
         console.error(error);
-        console.error(chalk`{red Failed to connect to Odoo with:} \n \turl = {blue ${baseUrl}}, port = {blue ${port}} \n \tdb = {blue ${db}}, username = {blue ${username}}, password = {blue ${password}} \n{red Please check the entered information}`);
+        console.error(chalk`{red Failed to connect to Odoo with:} \n \turl = {blue ${host}}, port = {blue ${port}} \n \tdb = {blue ${db}}, username = {blue ${username}}, password = {blue ${password}} \n{red Please check the entered information}`);
         process.exit(1);
     }
 }
@@ -202,15 +242,72 @@ async function watchFile(odoo) {
     return { fieldName, options, record, watcher };
 }
 
+function printHelpMessage() {
+    const sections = [
+        {
+            header: 'Oedit',
+            content: 'A CLI to allow connecting IDE\'s to lively edit odoo\'s code models.'
+        },
+        {
+            header: 'Options',
+            optionList: [
+                {
+                    name: 'help',
+                    type: Boolean,
+                    description: 'Print this usage guide.'
+                },
+                {
+                    name: 'yes',
+                    alias: 'y',
+                    type: Boolean,
+                    description: 'Set the connection details to the default values.'
+                },
+                {
+                    name: 'host',
+                    alias: 'h',
+                    description: 'Set the connection host.'
+                },
+                {
+                    name: 'port',
+                    alias: 'p',
+                    typeLabel: '{underline number}',
+                    description: 'Set the connection port.'
+                },
+                {
+                    name: 'database',
+                    alias: 'd',
+                    description: 'Set the connection database.'
+                },
+                {
+                    name: 'username',
+                    alias: 'u',
+                    description: 'Set the connection username.'
+                },
+                {
+                    name: 'password',
+                    alias: 's',
+                    description: 'Set the connection password.'
+                },
+            ]
+        }
+    ];
+
+    const usage = commandLineUsage(sections);
+    console.log(usage);
+}
+
 export async function cli() {
     try {
         const args = getArgs();
 
-        // console.log(args);
-        // process.exit();
+        if (args.help) {
+            printHelpMessage();
+            process.exit(0);
+        }
 
-        let { baseUrl, port, db, username, password } = {
-            baseUrl: 'http://localhost',
+        // defaults
+        let { host, port, db, username, password } = {
+            host: 'http://localhost',
             port: 8069,
             db: 'odoo',
             username: 'admin',
@@ -218,16 +315,23 @@ export async function cli() {
         };
 
         if (!args.skipPrompt) {
-            const connectionDetails = await promptConnectionDetails();
-            baseUrl = connectionDetails.baseUrl;
+            let connectionDetails = await promptConnectionDetails(Object.keys(args).filter(argName => args[argName] !== undefined));
+            // merge the connections details provided through the CLI arguments and the prompts
+            connectionDetails = { ...args, ...connectionDetails };
+            host = connectionDetails.host;
             port = connectionDetails.port;
             db = connectionDetails.db;
             username = connectionDetails.username;
             password = connectionDetails.password;
         }
 
+        if ((new URL(host)).protocol === 'https:' && port === 80) {
+            console.log(chalk`{yellow You are using port 80 for https, this is probably a mistake. It should be {blue 443}.}`);
+            process.exit();
+        }
+
         // Connect to Odoo
-        const odoo = await odooConnect(baseUrl, port, db, username, password);
+        const odoo = await odooConnect(host, port, db, username, password);
 
         let { fieldName, options, record, watcher } = await watchFile(odoo);
 

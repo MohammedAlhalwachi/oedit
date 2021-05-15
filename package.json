@@ -1,7 +1,7 @@
 {
   "name": "oedit",
   "version": "1.0.0",
-  "description": "A CLI to allow connecting IDE's to lively edit odoo's code models",
+  "description": "A CLI to allow connecting IDE's to lively edit odoo's code models.",
   "main": "src/index.js",
   "bin": {
     "@jidd6/oedit": "bin/oedit",
@@ -14,16 +14,19 @@
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "homepage": "https://github.com/MohammedAlhalwachi/oedit",
+  "repository": "MohammedAlhalwachi/oedit",
+  "author": "Mohammed Alhalwachi <mohammed.abdameeralhalwachi@gmail.com",
   "keywords": [
+    "odoo",
     "cli",
     "oedit"
   ],
-  "author": "",
   "license": "ISC",
   "dependencies": {
     "arg": "^5.0.0",
     "chalk": "^4.1.1",
     "chokidar": "^3.5.1",
+    "command-line-usage": "^6.1.1",
     "enquirer": "^2.3.6",
     "esm": "^3.2.25",
     "mkdirp": "^1.0.4",
