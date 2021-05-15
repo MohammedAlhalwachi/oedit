@@ -14,6 +14,7 @@ const chokidar = require('chokidar');
 const { Select, prompt } = require('enquirer');
 const arg = require('arg');
 const commandLineUsage = require('command-line-usage')
+const child_process = require('child_process');
 import chalk from 'chalk';
 
 
@@ -33,6 +34,7 @@ const getArgs = () => {
         '--database': String,
         '--username': String,
         '--password': String,
+        '--editor': String,
         '--help': Boolean,
         '--yes': Boolean,
         // Aliases
@@ -41,6 +43,7 @@ const getArgs = () => {
         '-d': '--database',
         '-u': '--username',
         '-s': '--password',
+        '-e': '--editor',
         '-y': '--yes',
     });
 
@@ -50,6 +53,7 @@ const getArgs = () => {
         db: args['--database'],
         username: args['--username'],
         password: args['--password'],
+        editor: args['--editor'],
         skipPrompt: args['--yes'],
         help: args['--help']
     }
@@ -73,11 +77,11 @@ const promptConnectionDetails = async (skipList) => {
             initial: function (options) {
                 const host = options.enquirer.answers.host;
                 const urlObj = new URL(host);
-                
+
                 // if its localhost suggest port 8069
                 if (urlObj.host === 'localhost')
                     return '8069';
-                
+
                 // otherwise suggest a port depending on the protocol
                 return urlObj.protocol === 'https:' ? '443' : '80';
             },
@@ -99,9 +103,9 @@ const promptConnectionDetails = async (skipList) => {
             name: 'password',
             message: '\tPassword:',
             initial: 'admin',
-        }
+        },
     ];
-    
+
     for (let promptItem of promptList) {
         if (!skipList.includes(promptItem.name)) {
             unskippedList.push(promptItem);
@@ -110,7 +114,7 @@ const promptConnectionDetails = async (skipList) => {
 
     // console.log(skipList);
     // process.exit();
-    
+
     return prompt(unskippedList);
 }
 
@@ -212,7 +216,7 @@ async function createWatcher(record, fieldName, odoo, options) {
         process.exit();
     }
 
-    return chokidar.watch(filePath).on('change', async (event, path) => {
+    const watcher = chokidar.watch(filePath).on('change', async (event, path) => {
         const file = await fs.readFile(filePath).then(file => file.toString());
         try {
             const isSuccessful = await odoo.update(options.model, Number.parseInt(options.id), {
@@ -225,6 +229,8 @@ async function createWatcher(record, fieldName, odoo, options) {
             console.error(chalk`{red Failed to update the record. Check the error above.}`);
         }
     });
+    
+    return { watcher, filePath }; 
 }
 
 async function watchFile(odoo) {
@@ -238,8 +244,8 @@ async function watchFile(odoo) {
     }
     console.log(chalk`{green Connected to the record}\n`);
 
-    let watcher = await createWatcher(record, fieldName, odoo, options);
-    return { fieldName, options, record, watcher };
+    let { watcher, filePath } = await createWatcher(record, fieldName, odoo, options);
+    return { fieldName, filePath, options, record, watcher };
 }
 
 function printHelpMessage() {
@@ -288,12 +294,24 @@ function printHelpMessage() {
                     alias: 's',
                     description: 'Set the connection password.'
                 },
+                {
+                    name: 'editor',
+                    alias: 'e',
+                    description: 'Set the editor path.'
+                },
             ]
         }
     ];
 
     const usage = commandLineUsage(sections);
     console.log(usage);
+}
+
+const openInEditor = (editorPath, filePath) => {
+    const editorExec = child_process.exec(`"${editorPath}" "${filePath}"`);
+    // editorExec.stdout.on('data', (data) => console.log(`stdout: ${data}`));
+    // editorExec.stderr.on('data', (data) => console.log(`stderr: ${data}`));
+    // editorExec.on('close', (code) => console.log(`child process exited with code ${code}`));
 }
 
 export async function cli() {
@@ -313,6 +331,7 @@ export async function cli() {
             username: 'admin',
             password: 'admin',
         };
+        const editorPath = args.editor;
 
         if (!args.skipPrompt) {
             let connectionDetails = await promptConnectionDetails(Object.keys(args).filter(argName => args[argName] !== undefined));
@@ -333,7 +352,13 @@ export async function cli() {
         // Connect to Odoo
         const odoo = await odooConnect(host, port, db, username, password);
 
-        let { fieldName, options, record, watcher } = await watchFile(odoo);
+        let { fieldName, filePath, options, record, watcher } = await watchFile(odoo);
+
+        // open the file in editor
+        if (editorPath) {
+            console.log('Editor path: ', editorPath);
+            openInEditor(editorPath, filePath);
+        }
 
         process.stdin.setEncoding('utf8');
         process.stdin.resume();
@@ -342,6 +367,12 @@ export async function cli() {
             if (str === 'ch') {
                 await watcher.close();
                 watcher = await watchFile(odoo);
+
+                // open the file in editor
+                if (editorPath) {
+                    console.log('Editor path: ', editorPath);
+                    openInEditor(editorPath, filePath);
+                }
             }
         });
     } catch (error) {

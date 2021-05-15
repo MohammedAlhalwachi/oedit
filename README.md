@@ -30,6 +30,7 @@ Options
   -d, --database string   Set the connection database.
   -u, --username string   Set the connection username.
   -s, --password string   Set the connection password.
+  -e, --editor string     Set the editor path.
 ```
 
 ## License
