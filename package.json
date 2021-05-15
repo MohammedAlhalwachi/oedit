@@ -1,6 +1,6 @@
 {
   "name": "oedit",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "A CLI to allow connecting IDE's to lively edit odoo's code models.",
   "main": "src/index.js",
   "bin": {
