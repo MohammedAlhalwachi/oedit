@@ -1,8 +1,3 @@
-// process.on('unhandledRejection', function (err) {
-//     console.trace();
-//     console.error(chalk`{red Something went wrong}`);
-//     process.exit();
-// });
 require = require('esm')(module, /*, options */);
 const querystring = require('querystring');
 const Odoo = require('odoo-await');
@@ -18,8 +13,6 @@ const child_process = require('child_process');
 const os = require('os');
 import chalk from 'chalk';
 
-
-// const sanitize = require("sanitize-filename");
 
 const snakeCase = string => {
     return string.replace(/\W+/g, " ")
