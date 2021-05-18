@@ -15,6 +15,7 @@ const { Select, prompt } = require('enquirer');
 const arg = require('arg');
 const commandLineUsage = require('command-line-usage')
 const child_process = require('child_process');
+const os = require('os');
 import chalk from 'chalk';
 
 
@@ -27,7 +28,7 @@ const snakeCase = string => {
         .join('_');
 };
 
-const getArgs = () => {
+const getCliArgs = () => {
     const args = arg({
         '--host': String,
         '--port': Number,
@@ -53,7 +54,7 @@ const getArgs = () => {
         db: args['--database'],
         username: args['--username'],
         password: args['--password'],
-        editor: args['--editor'],
+        editorPath: args['--editor'],
         skipPrompt: args['--yes'],
         help: args['--help']
     }
@@ -76,6 +77,8 @@ const promptConnectionDetails = async (skipList) => {
             message: '\tPort:',
             initial: function (options) {
                 const host = options.enquirer.answers.host;
+                if (!host) return '8069';
+                
                 const urlObj = new URL(host);
 
                 // if its localhost suggest port 8069
@@ -106,14 +109,12 @@ const promptConnectionDetails = async (skipList) => {
         },
     ];
 
+    // skip the prompt that are provided int he skip list
     for (let promptItem of promptList) {
         if (!skipList.includes(promptItem.name)) {
             unskippedList.push(promptItem);
         }
     }
-
-    // console.log(skipList);
-    // process.exit();
 
     return prompt(unskippedList);
 }
@@ -149,7 +150,6 @@ const promptRecordUrl = async () => {
             type: 'input',
             name: 'url',
             message: 'Record url:',
-            initial: 'http://localhost:8069/web#id=288&action=28&model=ir.ui.view&view_type=form&cids=&menu_id=4', // FIXME:: remove. this is only for testing
         }).then(res => res.url);
         // validate and get the options out of the url
         let urlObj = new URL(url); // this also validate the url
@@ -179,7 +179,7 @@ async function createWatcher(record, fieldName, odoo, options) {
     let fileExt;
     let filePath;
     try {
-        folderPath = path.join(process.cwd(), 'edit_files');
+        folderPath = path.join(os.tmpdir(), 'edit_files');
         fileExt = path.extname(record.arch_fs || '');
         if (fileExt === '') {
             const extPrompt = new Select({
@@ -229,11 +229,11 @@ async function createWatcher(record, fieldName, odoo, options) {
             console.error(chalk`{red Failed to update the record. Check the error above.}`);
         }
     });
-    
-    return { watcher, filePath }; 
+
+    return { watcher, folderPath, filePath };
 }
 
-async function watchFile(odoo) {
+async function watchFile(odoo, editorPath) {
     const { url, fieldName, options } = await promptRecordUrl();
     const record = await odoo.read(options.model, Number.parseInt(options.id)).then(records => records[0]);
     const field = record[fieldName];
@@ -244,7 +244,14 @@ async function watchFile(odoo) {
     }
     console.log(chalk`{green Connected to the record}\n`);
 
-    let { watcher, filePath } = await createWatcher(record, fieldName, odoo, options);
+    let { watcher, folderPath, filePath } = await createWatcher(record, fieldName, odoo, options);
+    
+    // open the file in editor
+    if (editorPath) {
+        openInEditor(editorPath, filePath);
+    } else {
+        openInFileExplorer(folderPath);
+    }
     return { fieldName, filePath, options, record, watcher };
 }
 
@@ -307,58 +314,53 @@ function printHelpMessage() {
     console.log(usage);
 }
 
+const openInFileExplorer = (filePath) => {
+    const explorerExec = child_process.exec(`start "" "${filePath}"`);
+}
+
 const openInEditor = (editorPath, filePath) => {
     const editorExec = child_process.exec(`"${editorPath}" "${filePath}"`);
-    // editorExec.stdout.on('data', (data) => console.log(`stdout: ${data}`));
-    // editorExec.stderr.on('data', (data) => console.log(`stderr: ${data}`));
-    // editorExec.on('close', (code) => console.log(`child process exited with code ${code}`));
+}
+
+const getArgs = async () => {
+    const defaultArgs = {
+        host: 'http://localhost',
+        port: 8069,
+        db: 'odoo',
+        username: 'admin',
+        password: 'admin',
+    };
+    const cliArgs = getCliArgs();
+    let promptArgs = {};
+
+    if (!cliArgs.skipPrompt) {
+        promptArgs = await promptConnectionDetails(Object.keys(cliArgs).filter(argName => cliArgs[argName] !== undefined));
+    }
+
+    // merge the connections details provided through the CLI arguments and the prompts
+    const args = { ...defaultArgs, ...cliArgs, ...promptArgs };
+
+    // make sure the user doesn't enter invalid port for a specific protocol
+    if ((new URL(args.host)).protocol === 'https:' && args.port === 80) {
+        console.log(chalk`{yellow You are using port 80 for https, this is probably a mistake. It should be {blue 443}.}`);
+        process.exit(0);
+    }
+    
+    return args;
 }
 
 export async function cli() {
     try {
-        const args = getArgs();
+        const args = await getArgs();
 
         if (args.help) {
             printHelpMessage();
             process.exit(0);
         }
 
-        // defaults
-        let { host, port, db, username, password } = {
-            host: 'http://localhost',
-            port: 8069,
-            db: 'odoo',
-            username: 'admin',
-            password: 'admin',
-        };
-        const editorPath = args.editor;
-
-        if (!args.skipPrompt) {
-            let connectionDetails = await promptConnectionDetails(Object.keys(args).filter(argName => args[argName] !== undefined));
-            // merge the connections details provided through the CLI arguments and the prompts
-            connectionDetails = { ...args, ...connectionDetails };
-            host = connectionDetails.host;
-            port = connectionDetails.port;
-            db = connectionDetails.db;
-            username = connectionDetails.username;
-            password = connectionDetails.password;
-        }
-
-        if ((new URL(host)).protocol === 'https:' && port === 80) {
-            console.log(chalk`{yellow You are using port 80 for https, this is probably a mistake. It should be {blue 443}.}`);
-            process.exit();
-        }
-
         // Connect to Odoo
-        const odoo = await odooConnect(host, port, db, username, password);
-
-        let { fieldName, filePath, options, record, watcher } = await watchFile(odoo);
-
-        // open the file in editor
-        if (editorPath) {
-            console.log('Editor path: ', editorPath);
-            openInEditor(editorPath, filePath);
-        }
+        const odoo = await odooConnect(args.host, args.port, args.db, args.username, args.password);
+        let { fieldName, filePath, options, record, watcher } = await watchFile(odoo, args.editorPath);
 
         process.stdin.setEncoding('utf8');
         process.stdin.resume();
@@ -366,13 +368,10 @@ export async function cli() {
             const str = data.toString().trim().toLowerCase();
             if (str === 'ch') {
                 await watcher.close();
-                watcher = await watchFile(odoo);
-
-                // open the file in editor
-                if (editorPath) {
-                    console.log('Editor path: ', editorPath);
-                    openInEditor(editorPath, filePath);
-                }
+                watcher = (await watchFile(odoo, args.editorPath)).watcher;
+                
+                // needed to resume for listening for "ch" on stdin after watchFile()
+                process.stdin.resume();
             }
         });
     } catch (error) {
@@ -380,9 +379,3 @@ export async function cli() {
         console.error(chalk`{red Something went wrong!}`);
     }
 }
-
-// cli();
-
-// const partnerId = await odoo.create('res.partner', {name: 'Kool Keith', email: 'lostinspace@example.com'});
-// console.log(`Partner created with ID ${partnerId}`);
-
