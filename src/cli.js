@@ -86,7 +86,21 @@ const promptConnectionDetails = async (skipList) => {
             type: 'input',
             name: 'db',
             message: '\tDatabase:',
-            initial: 'odoo',
+            initial: function (options) {
+                const host = options.enquirer.answers.host;
+                if (!host) return 'odoo';
+
+                const urlObj = new URL(host);
+                const urlParts = urlObj.host.split(".");
+
+                // if the url has 3 or more parts, it means a subdomain is present
+                if (urlParts.length >= 3) {
+                    // return the first part, the subdomain
+                    return urlParts[0];
+                } else {
+                    return "odoo";
+                }
+            },
         },
         {
             type: 'input',
@@ -134,7 +148,7 @@ const odooConnect = async (host, port, db, username, password) => {
     }
 }
 
-const promptRecordUrl = async () => {
+const promptRecordUrl = async (suggestion) => {
     let url;
     let fieldName;
     let options;
@@ -143,6 +157,7 @@ const promptRecordUrl = async () => {
             type: 'input',
             name: 'url',
             message: 'Record url:',
+            initial: suggestion || ''
         }).then(res => res.url);
         // validate and get the options out of the url
         let urlObj = new URL(url); // this also validate the url
@@ -226,8 +241,8 @@ async function createWatcher(record, fieldName, odoo, options) {
     return { watcher, folderPath, filePath };
 }
 
-async function watchFile(odoo, editorPath) {
-    const { url, fieldName, options } = await promptRecordUrl();
+async function watchFile(odoo, editorPath, host) {
+    const { url, fieldName, options } = await promptRecordUrl(host);
     const record = await odoo.read(options.model, Number.parseInt(options.id)).then(records => records[0]);
     const field = record[fieldName];
 
@@ -248,7 +263,7 @@ async function watchFile(odoo, editorPath) {
     return { fieldName, filePath, options, record, watcher };
 }
 
-function printHelpMessage() {
+const printHelpMessage = () => {
     const sections = [
         {
             header: 'Oedit',
@@ -305,7 +320,7 @@ function printHelpMessage() {
 
     const usage = commandLineUsage(sections);
     console.log(usage);
-}
+};
 
 const openInFileExplorer = (filePath) => {
     const explorerExec = child_process.exec(`start "" "${filePath}"`);
@@ -353,7 +368,7 @@ export async function cli() {
 
         // Connect to Odoo
         const odoo = await odooConnect(args.host, args.port, args.db, args.username, args.password);
-        let { fieldName, filePath, options, record, watcher } = await watchFile(odoo, args.editorPath);
+        let { fieldName, filePath, options, record, watcher } = await watchFile(odoo, args.editorPath, args.host);
 
         process.stdin.setEncoding('utf8');
         process.stdin.resume();
@@ -361,7 +376,7 @@ export async function cli() {
             const str = data.toString().trim().toLowerCase();
             if (str === 'ch') {
                 await watcher.close();
-                watcher = (await watchFile(odoo, args.editorPath)).watcher;
+                watcher = (await watchFile(odoo, args.editorPath, args.host)).watcher;
                 
                 // needed to resume for listening for "ch" on stdin after watchFile()
                 process.stdin.resume();
