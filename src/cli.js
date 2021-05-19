@@ -53,16 +53,35 @@ const getCliArgs = () => {
     }
 }
 
+const getPreviousArgs = async () => {
+    const configPath = path.join(os.tmpdir(), 'oedit_config/previousArgs.json');
+    const config = await fs.readFile(configPath).then(file => JSON.parse(file.toString())).catch(e => ({}));
+
+    return config;
+};
+
+const updatePreviousArgs = async (newArgs) => {
+    const configPath = path.join(os.tmpdir(), 'oedit_config/previousArgs.json');
+    const config = getPreviousArgs();
+
+    await mkdirp(path.dirname(configPath));
+    await fs.writeFile(configPath, JSON.stringify({ ...config, ...newArgs }));
+};
+
 const promptConnectionDetails = async (skipList) => {
     console.log(chalk`{bold Please provide the following information:}`);
     let unskippedList = [];
+    const previousArgs = await getPreviousArgs();
+    const getPreviousArg = (name) => {
+        return previousArgs[name];
+    };
 
     const promptList = [
         {
             type: 'input',
             name: 'host',
             message: '\tServer Host:',
-            initial: 'http://localhost',
+            initial: getPreviousArg('host') || 'http://localhost'
         },
         {
             type: 'numeral',
@@ -71,7 +90,7 @@ const promptConnectionDetails = async (skipList) => {
             initial: function (options) {
                 const host = options.enquirer.answers.host;
                 if (!host) return '8069';
-                
+
                 const urlObj = new URL(host);
 
                 // if its localhost suggest port 8069
@@ -88,7 +107,7 @@ const promptConnectionDetails = async (skipList) => {
             message: '\tDatabase:',
             initial: function (options) {
                 const host = options.enquirer.answers.host;
-                if (!host) return 'odoo';
+                if (!host) return getPreviousArg('db') || 'odoo';
 
                 const urlObj = new URL(host);
                 const urlParts = urlObj.host.split(".");
@@ -98,7 +117,7 @@ const promptConnectionDetails = async (skipList) => {
                     // return the first part, the subdomain
                     return urlParts[0];
                 } else {
-                    return "odoo";
+                    return getPreviousArg('db') || 'odoo';
                 }
             },
         },
@@ -106,13 +125,13 @@ const promptConnectionDetails = async (skipList) => {
             type: 'input',
             name: 'username',
             message: '\tUsername:',
-            initial: 'admin',
+            initial: getPreviousArg('username') || 'admin'
         },
         {
             type: 'input',
             name: 'password',
             message: '\tPassword:',
-            initial: 'admin',
+            initial: getPreviousArg('password') || 'admin'
         },
     ];
 
@@ -187,7 +206,7 @@ async function createWatcher(record, fieldName, odoo, options) {
     let fileExt;
     let filePath;
     try {
-        folderPath = path.join(os.tmpdir(), 'edit_files');
+        folderPath = path.join(os.tmpdir(), 'oedit_edit_files');
         fileExt = path.extname(record.arch_fs || '');
         if (fileExt === '') {
             const extPrompt = new Select({
@@ -253,7 +272,7 @@ async function watchFile(odoo, editorPath, host) {
     console.log(chalk`{green Connected to the record}\n`);
 
     let { watcher, folderPath, filePath } = await createWatcher(record, fieldName, odoo, options);
-    
+
     // open the file in editor
     if (editorPath) {
         openInEditor(editorPath, filePath);
@@ -353,7 +372,8 @@ const getArgs = async () => {
         console.log(chalk`{yellow You are using port 80 for https, this is probably a mistake. It should be {blue 443}.}`);
         process.exit(0);
     }
-    
+    await updatePreviousArgs(args);
+
     return args;
 }
 
@@ -376,8 +396,8 @@ export async function cli() {
             const str = data.toString().trim().toLowerCase();
             if (str === 'ch') {
                 await watcher.close();
-                watcher = (await watchFile(odoo, args.editorPath, args.host)).watcher;
-                
+                watcher = await watchFile(odoo, args.editorPath, args.host).then(obj => obj.watcher);
+
                 // needed to resume for listening for "ch" on stdin after watchFile()
                 process.stdin.resume();
             }
