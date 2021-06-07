@@ -84,7 +84,7 @@ const promptConnectionDetails = async (skipList) => {
             initial: getPreviousArg('host') || 'http://localhost'
         },
         {
-            type: 'numeral',
+            type: 'input',
             name: 'port',
             message: '\tPort:',
             initial: function (options) {
@@ -92,6 +92,8 @@ const promptConnectionDetails = async (skipList) => {
                 if (!host) return '8069';
 
                 const urlObj = new URL(host);
+                if (urlObj.port)
+                    return urlObj.port;
 
                 // if its localhost suggest port 8069
                 if (urlObj.host === 'localhost')
